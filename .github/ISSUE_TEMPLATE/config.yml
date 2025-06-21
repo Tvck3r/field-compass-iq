@@ -1,0 +1,9 @@
+name: Issue Template Config
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/Tvck3r/field-compass-iq/tree/main/docs
+    about: Review architecture documentation and guidelines
+  - name: 🏗️ Architecture Decision Records
+    url: https://github.com/Tvck3r/field-compass-iq/tree/main/docs/adr
+    about: View architectural decisions and patterns

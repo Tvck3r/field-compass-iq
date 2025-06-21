@@ -1,0 +1,103 @@
+name: Documentation Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+      - 'src/**/*.cs'
+      - 'src/**/*.ts'
+      - 'src/**/*.tsx'
+
+jobs:
+  documentation-check:
+    runs-on: ubuntu-latest
+    name: Documentation Compliance
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check API Documentation
+      run: |
+        echo "📚 Checking API documentation compliance..."
+        
+        # Check for missing XML documentation on public APIs
+        if find . -name "*.cs" -path "*/Controllers/*" | xargs grep -l "public.*class\|public.*method" | head -1; then
+          MISSING_DOCS=$(find . -name "*.cs" -path "*/Controllers/*" -exec grep -L "///" {} \;)
+          if [ ! -z "$MISSING_DOCS" ]; then
+            echo "❌ DOCUMENTATION VIOLATION: Missing XML documentation on controllers"
+            echo "Rule: All public API endpoints must have XML documentation for Swagger"
+            echo "Files missing documentation:"
+            echo "$MISSING_DOCS"
+            exit 1
+          fi
+        fi
+        
+        echo "✅ API documentation check passed"
+
+    - name: Check ADR Updates
+      run: |
+        echo "📋 Checking if ADRs need updates..."
+        
+        # Check if architectural changes require ADR updates
+        ARCH_FILES_CHANGED=$(git diff --name-only origin/main...HEAD | grep -E "(Infrastructure|Domain|Application)" | wc -l)
+        ADR_FILES_CHANGED=$(git diff --name-only origin/main...HEAD | grep "docs/adr" | wc -l)
+        
+        if [ $ARCH_FILES_CHANGED -gt 0 ] && [ $ADR_FILES_CHANGED -eq 0 ]; then
+          echo "⚠️ WARNING: Architectural changes detected without ADR updates"
+          echo "Consider if this change requires a new ADR or updates to existing ones"
+          echo "Architectural files changed: $ARCH_FILES_CHANGED"
+          echo "ADR files changed: $ADR_FILES_CHANGED"
+        fi
+
+    - name: Validate README Updates
+      run: |
+        echo "📖 Checking README consistency..."
+        
+        # Check if new features are documented in README
+        NEW_FEATURES=$(git diff --name-only origin/main...HEAD | grep -E "(Controller|Handler)" | wc -l)
+        README_CHANGED=$(git diff --name-only origin/main...HEAD | grep "README.md" | wc -l)
+        
+        if [ $NEW_FEATURES -gt 2 ] && [ $README_CHANGED -eq 0 ]; then
+          echo "⚠️ WARNING: Multiple new features added without README updates"
+          echo "Consider updating the README to reflect new functionality"
+        fi
+
+    - name: Check LLM Context Relevance
+      run: |
+        echo "🤖 Checking if LLM context needs updates..."
+        
+        # Check if core patterns changed
+        PATTERN_CHANGES=$(git diff origin/main...HEAD | grep -E "(\+.*IRequestHandler|\+.*Command|\+.*Query)" | wc -l)
+        LLM_CONTEXT_CHANGED=$(git diff --name-only origin/main...HEAD | grep "llm-context.md" | wc -l)
+        
+        if [ $PATTERN_CHANGES -gt 0 ] && [ $LLM_CONTEXT_CHANGED -eq 0 ]; then
+          echo "⚠️ WARNING: Core pattern changes detected"
+          echo "Consider updating docs/llm-context.md to reflect new patterns"
+        fi
+
+    - name: Markdown Link Check
+      uses: gaurav-nelson/github-action-markdown-link-check@v1
+      with:
+        use-quiet-mode: 'yes'
+        use-verbose-mode: 'yes'
+        config-file: '.github/markdown-link-check-config.json'
+
+    - name: Generate Documentation Report
+      run: |
+        echo "## 📚 Documentation Compliance Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Checks Performed:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ API documentation (XML comments)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Markdown link validation" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ ADR consistency check" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ LLM context relevance check" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Documentation Guidelines:" >> $GITHUB_STEP_SUMMARY
+        echo "- All public APIs must have XML documentation" >> $GITHUB_STEP_SUMMARY
+        echo "- Architectural changes should update relevant ADRs" >> $GITHUB_STEP_SUMMARY
+        echo "- New patterns should be reflected in LLM context guide" >> $GITHUB_STEP_SUMMARY

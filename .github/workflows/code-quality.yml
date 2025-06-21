@@ -1,0 +1,108 @@
+name: Code Quality & Formatting
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  backend-quality:
+    runs-on: ubuntu-latest
+    name: Backend Code Quality
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Check CSharpier formatting
+      run: |
+        dotnet tool install -g csharpier
+        csharpier --check .
+        if [ $? -ne 0 ]; then
+          echo "❌ Code formatting check failed"
+          echo "Run 'dotnet csharpier .' to fix formatting issues"
+          exit 1
+        fi
+
+    - name: Run Roslyn analyzers
+      run: |
+        dotnet build --configuration Release --verbosity normal --no-restore
+        if [ $? -ne 0 ]; then
+          echo "❌ Code analysis failed"
+          echo "Fix compiler warnings and errors before submitting PR"
+          exit 1
+        fi
+
+    - name: Run unit tests
+      run: |
+        dotnet test --no-build --configuration Release --logger trx --results-directory "TestResults"
+
+    - name: Architecture tests
+      run: |
+        # Check if architecture tests exist and run them
+        if find . -name "*ArchitectureTests*" -type d | head -1; then
+          dotnet test --filter "Category=Architecture" --no-build --configuration Release
+        fi
+
+  frontend-quality:
+    runs-on: ubuntu-latest
+    name: Frontend Code Quality
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Check Prettier formatting
+      run: |
+        npm run format:check
+        if [ $? -ne 0 ]; then
+          echo "❌ Code formatting check failed"
+          echo "Run 'npm run format' to fix formatting issues"
+          exit 1
+        fi
+
+    - name: Run ESLint
+      run: |
+        npm run lint
+        if [ $? -ne 0 ]; then
+          echo "❌ Linting failed"
+          echo "Fix ESLint errors and warnings before submitting PR"
+          exit 1
+        fi
+
+    - name: TypeScript type check
+      run: |
+        npm run type-check
+        if [ $? -ne 0 ]; then
+          echo "❌ TypeScript type check failed"
+          echo "Fix type errors before submitting PR"
+          exit 1
+        fi
+
+    - name: Run unit tests
+      run: npm test -- --coverage --watchAll=false
+
+    - name: Build check
+      run: |
+        npm run build
+        if [ $? -ne 0 ]; then
+          echo "❌ Build failed"
+          echo "Fix build errors before submitting PR"
+          exit 1
+        fi

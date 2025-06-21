@@ -1,0 +1,212 @@
+name: Architecture Compliance Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '*.cs'
+      - '*.tsx'
+      - '*.ts'
+      - '*.json'
+
+jobs:
+  architecture-compliance:
+    runs-on: ubuntu-latest
+    name: Architecture Compliance Check
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install .NET tools
+      run: |
+        dotnet tool install -g dotnet-outdated-tool
+        dotnet tool install -g dotnet-format
+
+    - name: Check Backend Architecture Compliance
+      run: |
+        echo "🏗️ Checking Backend Architecture Compliance..."
+        
+        # Check for exposed domain entities in controllers
+        if find . -name "*.cs" -path "*/Controllers/*" -exec grep -l "Domain\." {} \; | head -1; then
+          echo "❌ ARCHITECTURE VIOLATION: Domain entities exposed in controllers"
+          echo "Rule: Controllers must only return DTOs, never domain entities"
+          echo "Fix: Create DTOs and use AutoMapper for entity-to-DTO conversion"
+          exit 1
+        fi
+        
+        # Check for missing CQRS pattern in handlers
+        if find . -name "*Handler.cs" -exec grep -L "IRequestHandler\|IRequest" {} \; | head -1; then
+          echo "❌ ARCHITECTURE VIOLATION: Handler not implementing CQRS pattern"
+          echo "Rule: All handlers must implement IRequestHandler<TRequest, TResponse>"
+          exit 1
+        fi
+        
+        # Check for missing validators
+        COMMANDS=$(find . -name "*Command.cs" | wc -l)
+        VALIDATORS=$(find . -name "*CommandValidator.cs" | wc -l)
+        if [ $COMMANDS -gt $VALIDATORS ]; then
+          echo "❌ ARCHITECTURE VIOLATION: Commands without validators detected"
+          echo "Rule: Every command must have a corresponding FluentValidation validator"
+          echo "Commands found: $COMMANDS, Validators found: $VALIDATORS"
+          exit 1
+        fi
+        
+        # Check for direct Entity Framework usage in application layer
+        if find . -name "*.cs" -path "*/Application/*" -exec grep -l "DbContext\|DbSet" {} \; | head -1; then
+          echo "❌ ARCHITECTURE VIOLATION: Direct EF usage in Application layer"
+          echo "Rule: Application layer must use repository interfaces, not DbContext directly"
+          exit 1
+        fi
+        
+        echo "✅ Backend architecture compliance check passed"
+
+    - name: Check Frontend Architecture Compliance
+      run: |
+        echo "🎨 Checking Frontend Architecture Compliance..."
+        
+        # Check for hardcoded colors
+        if find . -name "*.tsx" -o -name "*.ts" -o -name "*.css" | xargs grep -l "bg-blue\|text-red\|border-green" | head -1; then
+          echo "❌ ARCHITECTURE VIOLATION: Hardcoded colors detected"
+          echo "Rule: Use CSS custom properties (--color-primary-500) for all colors"
+          echo "Fix: Replace hardcoded Tailwind colors with theme variables"
+          exit 1
+        fi
+        
+        # Check for direct API calls without types
+        if find . -name "*.tsx" -o -name "*.ts" | xargs grep -l "fetch\|axios" | head -1; then
+          MANUAL_TYPES=$(find . -name "*.tsx" -o -name "*.ts" | xargs grep -L "import.*from.*@/types/api")
+          if [ ! -z "$MANUAL_TYPES" ]; then
+            echo "❌ ARCHITECTURE VIOLATION: API calls without generated types"
+            echo "Rule: Use auto-generated TypeScript types from OpenAPI specs"
+            echo "Fix: Import types from @/types/api and use them in API calls"
+            exit 1
+          fi
+        fi
+        
+        # Check for custom styling without CSS variables
+        if find . -name "*.tsx" | xargs grep -l "style={{" | head -1; then
+          echo "❌ ARCHITECTURE VIOLATION: Inline styles detected"
+          echo "Rule: All styling must use Tailwind classes with CSS custom properties"
+          echo "Fix: Use Tailwind classes with theme variables instead of inline styles"
+          exit 1
+        fi
+        
+        echo "✅ Frontend architecture compliance check passed"
+
+    - name: Check Database Schema Compliance
+      run: |
+        echo "🗄️ Checking Database Schema Compliance..."
+        
+        # Check for missing external ID fields
+        if find . -name "*Migration*.cs" -exec grep -l "CreateTable" {} \; | head -1; then
+          MISSING_EXTERNAL_ID=$(find . -name "*Migration*.cs" -exec grep -L "ExternalId" {} \;)
+          if [ ! -z "$MISSING_EXTERNAL_ID" ]; then
+            echo "⚠️ WARNING: New tables may be missing ExternalId fields"
+            echo "Rule: Customer-facing entities must have ExternalId for integration"
+            echo "Please verify that ExternalId fields are added where appropriate"
+          fi
+        fi
+        
+        # Check for missing audit fields
+        if find . -name "*Migration*.cs" -exec grep -l "CreateTable" {} \; | head -1; then
+          MISSING_AUDIT=$(find . -name "*Migration*.cs" -exec grep -L "CreatedAt\|ModifiedAt" {} \;)
+          if [ ! -z "$MISSING_AUDIT" ]; then
+            echo "⚠️ WARNING: New tables may be missing audit fields"
+            echo "Rule: All entities should have CreatedAt, ModifiedAt, CreatedBy, ModifiedBy"
+          fi
+        fi
+        
+        echo "✅ Database schema compliance check completed"
+
+    - name: Check API Versioning Compliance
+      run: |
+        echo "🔄 Checking API Versioning Compliance..."
+        
+        # Check for controllers without version attributes
+        if find . -name "*Controller.cs" -exec grep -L "ApiVersion\|Route.*v[0-9]" {} \; | head -1; then
+          echo "❌ ARCHITECTURE VIOLATION: Controllers without API versioning"
+          echo "Rule: All controllers must specify API version"
+          echo "Fix: Add [ApiVersion(\"1.0\")] attribute and versioned route"
+          exit 1
+        fi
+        
+        echo "✅ API versioning compliance check passed"
+
+    - name: Security Compliance Check
+      run: |
+        echo "🔒 Checking Security Compliance..."
+        
+        # Check for hardcoded secrets
+        if find . -name "*.cs" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" | xargs grep -i "password\s*=\|secret\s*=\|key\s*=" | grep -v "password.*{" | head -1; then
+          echo "❌ SECURITY VIOLATION: Potential hardcoded secrets detected"
+          echo "Rule: All secrets must use configuration providers or secret managers"
+          exit 1
+        fi
+        
+        # Check for SQL injection vulnerabilities
+        if find . -name "*.cs" | xargs grep -l "\"SELECT \|\"INSERT \|\"UPDATE \|\"DELETE " | head -1; then
+          echo "❌ SECURITY VIOLATION: Potential SQL injection vulnerability"
+          echo "Rule: Use parameterized queries or Entity Framework only"
+          exit 1
+        fi
+        
+        echo "✅ Security compliance check passed"
+
+    - name: Generate Architecture Report
+      run: |
+        echo "📊 Generating Architecture Compliance Report..."
+        echo "## 🏗️ Architecture Compliance Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ✅ Checks Passed:" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend CQRS/MediatR patterns" >> $GITHUB_STEP_SUMMARY
+        echo "- Frontend theming compliance" >> $GITHUB_STEP_SUMMARY
+        echo "- API versioning standards" >> $GITHUB_STEP_SUMMARY
+        echo "- Security best practices" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Architecture Guidelines:" >> $GITHUB_STEP_SUMMARY
+        echo "- [LLM Context Guide](./docs/llm-context.md)" >> $GITHUB_STEP_SUMMARY
+        echo "- [Architecture Documentation](./docs/architecture.md)" >> $GITHUB_STEP_SUMMARY
+        echo "- [ADR Directory](./docs/adr/)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Comment PR with Results
+      if: failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## ❌ Architecture Compliance Check Failed
+            
+            This PR contains changes that don't align with our architectural guidelines.
+            
+            **Please review:**
+            - [LLM Context Guide](./docs/llm-context.md) for implementation patterns
+            - [Architecture Documentation](./docs/architecture.md) for detailed guidelines
+            - [ADR Directory](./docs/adr/) for architectural decisions
+            
+            **Common fixes:**
+            - Use DTOs instead of domain entities in API responses
+            - Implement CQRS pattern with MediatR for all business logic
+            - Use CSS custom properties instead of hardcoded colors
+            - Add FluentValidation validators for all commands
+            - Use auto-generated TypeScript types from OpenAPI specs
+            
+            Re-run checks after making corrections.`
+          })

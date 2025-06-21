@@ -1,0 +1,87 @@
+name: 🏗️ Architecture Violation
+description: Report code that doesn't follow architectural guidelines
+title: '[ARCH] '
+labels: ['architecture', 'compliance']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to report code that violates our architectural guidelines.
+        
+        **Before submitting:** Please check our [LLM Context Guide](../docs/llm-context.md) and [Architecture Documentation](../docs/architecture.md).
+
+  - type: dropdown
+    id: violation-type
+    attributes:
+      label: Violation Type
+      description: What type of architectural violation did you find?
+      options:
+        - Domain entities exposed in API responses
+        - Missing CQRS/MediatR pattern
+        - Hardcoded colors/styles in frontend
+        - Missing FluentValidation validators
+        - Direct EF usage in Application layer
+        - Missing API versioning
+        - Security violation (hardcoded secrets)
+        - Missing external ID fields
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the architectural violation you found
+      placeholder: Detailed description of what violates our architectural guidelines...
+    validations:
+      required: true
+
+  - type: textarea
+    id: location
+    attributes:
+      label: Code Location
+      description: Where is the violation located?
+      placeholder: |
+        File path: src/Application/Controllers/CustomerController.cs
+        Line numbers: 25-30
+        Method/Class: GetCustomer()
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-solution
+    attributes:
+      label: Expected Solution
+      description: How should this be fixed according to our guidelines?
+      placeholder: |
+        According to ADR-0003, this should use CQRS pattern with:
+        - GetCustomerQuery with IRequestHandler
+        - Return CustomerDto instead of Customer entity
+        - Add FluentValidation validator
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What's the impact of this violation?
+      placeholder: |
+        - Breaks multi-tenant data isolation
+        - Violates OWASP security guidelines
+        - Makes theming impossible for customers
+        - etc.
+
+  - type: checkboxes
+    id: guidelines-checked
+    attributes:
+      label: Guidelines Reviewed
+      description: Confirm you've checked our architectural guidelines
+      options:
+        - label: I've reviewed the [LLM Context Guide](../docs/llm-context.md)
+          required: true
+        - label: I've checked relevant [ADRs](../docs/adr/)
+          required: true
+        - label: I've confirmed this violates our documented patterns
+          required: true

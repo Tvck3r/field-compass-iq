@@ -1,0 +1,99 @@
+name: Security Scan
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 2 * * 1' # Weekly on Monday at 2 AM
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Analysis
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Setup .NET for security analysis
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Install security analysis tools
+      run: |
+        dotnet tool install --global security-scan
+        dotnet tool install --global DevSkim.CLI
+
+    - name: Run DevSkim security analysis
+      run: |
+        devskim analyze . --output-format json --output-file devskim-results.json
+        if [ -s devskim-results.json ]; then
+          echo "❌ Security issues found by DevSkim"
+          cat devskim-results.json
+          exit 1
+        fi
+
+    - name: Check for sensitive data
+      run: |
+        echo "🔍 Scanning for sensitive data patterns..."
+        
+        # Check for common secret patterns
+        if grep -r -i --include="*.cs" --include="*.ts" --include="*.tsx" --include="*.json" \
+           -E "(password|secret|key|token)\s*[:=]\s*['\"][^'\"]{8,}" . | grep -v "placeholder\|example\|test"; then
+          echo "❌ Potential secrets detected in code"
+          echo "Remove hardcoded secrets and use configuration providers"
+          exit 1
+        fi
+        
+        # Check for database connection strings
+        if grep -r -i --include="*.cs" --include="*.json" \
+           "Server=\|Data Source=\|Host=" . | grep -v "localhost\|example\|{"; then
+          echo "❌ Potential database connection strings detected"
+          echo "Use configuration providers for connection strings"
+          exit 1
+        fi
+        
+        echo "✅ No sensitive data patterns detected"
+
+    - name: Dependency vulnerability check
+      run: |
+        echo "📦 Checking for vulnerable dependencies..."
+        
+        # .NET dependency check
+        if find . -name "*.csproj" | head -1; then
+          dotnet list package --vulnerable --include-transitive
+          if [ $? -ne 0 ]; then
+            echo "❌ Vulnerable .NET packages detected"
+            echo "Update vulnerable packages before merging"
+            exit 1
+          fi
+        fi
+        
+        # Node.js dependency check
+        if [ -f "package.json" ]; then
+          npm audit --audit-level=high
+          if [ $? -ne 0 ]; then
+            echo "❌ High-severity npm vulnerabilities detected"
+            echo "Run 'npm audit fix' to resolve security issues"
+            exit 1
+          fi
+        fi
+        
+        echo "✅ No vulnerable dependencies detected"
